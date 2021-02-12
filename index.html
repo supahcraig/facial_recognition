@@ -1,0 +1,185 @@
+<html>
+<!-- special thanks to https://html5.tutorials24x7.com/blog/how-to-capture-image-from-camera for the JavaScript to make the camera work -->
+
+<head>
+    <link rel="stylesheet" href="mystyle.css">
+  </head>
+
+
+
+
+<!-- The buttons to control the stream -->
+<div class="button-group">
+  <button id="btn-start" type="button" class="button">Start Streaming</button>
+  <!-- <button id="btn-stop" type="button" class="button">Stop Streaming</button> -->
+  <button id="btn-capture" type="button" class="button">Identify Me!</button>
+</div>
+
+<!-- Video Element & Canvas -->
+<div class="play-area">
+  <div class="play-area-sub">
+    <h3>The Stream</h3>
+    <video id="stream" width="320" height="240"></video>
+  </div>
+  <div class="play-area-sub">
+    <h3>The Capture</h3>
+    <canvas id="capture" width="320" height="240"></canvas>
+    <div id="snapshot"></div>
+  </div>
+</div>
+
+<div id="authenticatedUser">
+</div>
+
+
+<script src="https://sdk.amazonaws.com/js/aws-sdk-2.839.0.min.js"></script>
+<script>
+AWS.config.region = 'us-east-1';
+AWS.config.credentials = new AWS.CognitoIdentityCredentials({
+    IdentityPoolId: 'us-east-1:YOUR-COGNITO-ID-HERE'
+});
+
+
+// The buttons to start & stop stream and to capture the image
+var btnStart = document.getElementById("btn-start");
+var btnCapture = document.getElementById("btn-capture");
+
+// The stream & capture
+var stream = document.getElementById("stream");
+var capture = document.getElementById("capture");
+var snapshot = document.getElementById("snapshot");
+
+// The video stream
+var cameraStream = null;
+
+// Attach listeners
+btnStart.addEventListener("click", startStreaming);
+btnCapture.addEventListener("click", captureSnapshot);
+
+var rekognition = new AWS.Rekognition();
+
+
+// Start Streaming
+function startStreaming() {
+    var mediaSupport = 'mediaDevices' in navigator;
+
+    if (mediaSupport && null == cameraStream) {
+        navigator.mediaDevices.getUserMedia({
+                video: true
+            })
+            .then(function(mediaStream) {
+                cameraStream = mediaStream;
+                stream.srcObject = mediaStream;
+                stream.play();
+            })
+            .catch(function(err) {
+
+                console.log("Unable to access camera: " + err);
+            });
+    } else {
+        alert('Your browser does not support media devices.');
+        return;
+    }
+}
+
+
+function captureSnapshot() {
+    if (null != cameraStream) {
+
+        var ctx = capture.getContext('2d');
+        var img = new Image();
+
+        ctx.drawImage(stream, 0, 0, capture.width, capture.height);
+
+        img.src = capture.toDataURL("image/png");
+        img.width = 240;
+        image = img.src
+
+        snapshot.innerHTML = '';
+
+        snapshot.appendChild(img);
+        ekognize(img.src);
+    }
+}
+
+
+function getBinary(encodedFile) {
+    var base64Image = encodedFile.split("data:image/png;base64,")[1];
+    var binaryImg = atob(base64Image);
+    var length = binaryImg.length;
+    var ab = new ArrayBuffer(length);
+    var ua = new Uint8Array(ab);
+
+    for (var i = 0; i < length; i++) {
+        ua[i] = binaryImg.charCodeAt(i);
+    };
+
+    var blob = new Blob([ab], {
+        type: "image/png"
+    });
+
+    return ab;
+};
+
+
+var rekognition = new AWS.Rekognition();
+var dbClient = new AWS.DynamoDB.DocumentClient();
+
+function getName(faceId) {
+    return new Promise(function(resolve, reject) {
+
+        dbParams = {
+            TableName: "faces",
+            Key: {
+                "face_id": matchedFaceId
+            }
+        };
+
+        dbClient.get(dbParams, function(dbErr, dbData) {
+            if (dbErr) {
+                console.log(dbErr, dbErr.stack);
+
+                reject("UNIDENTIFIED USER");
+
+            } else {
+                console.log(dbData);
+                resolve(dbData.Item.name);
+            };
+        });
+    });
+};
+
+
+function rekognize(imgSrc) {
+
+    var params = {
+        CollectionId: "Collection",
+        Image: {
+            Bytes: getBinary(imgSrc)
+        }
+    };
+
+    rekognition.searchFacesByImage(params, function(err, data) {
+        if (err) {
+            console.log("ERROR!!!");
+            console.log(err, err.stack);
+        } else {
+            console.log("SUCCESS!!!");
+            console.log(data);
+            matchedFaceId = data.FaceMatches[0].Face.FaceId;
+
+            async function f() {
+                var userName = await getName(matchedFaceId);
+                console.log(userName);
+
+                var element = document.getElementById("authenticatedUser");
+                element.innerHTML = "Welcome, " + userName;
+            };
+            f();
+        };
+    });
+};
+
+</script>
+
+<html>
